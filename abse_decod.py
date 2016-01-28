@@ -11,38 +11,19 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.externals.joblib import Parallel, delayed
-from fonctionsPython import sm_fieldtrip2mne
+from fonctionsPython.sm_fieldtrip2mne import sm_fieldtrip2mne
+from fonctionsPython.jr_subscore import subscore
 
 #------------------------- for single task -------------------------------------
 data_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mat/epoch/'
 subject = 'am150105'
 fname = op.join(data_path, 'abse_' + subject + '_train.mat')
 decim = 10
+n_jobs = 7
 
-# # Convert from Fieldtrip structure to mne Epochs
-# mat = sio.loadmat(fname, squeeze_me=True, struct_as_record=False) # Load data 
-# ft_data = mat['data']
-# n_trial = len(ft_data.trial)
-# n_chans, n_time = ft_data.trial[0].shape
-# data = np.zeros((n_trial, n_chans, n_time))
-# for trial in range(n_trial):
-#     data[trial, :, :] = ft_data.trial[trial]
-# sfreq = float(ft_data.fsample)  # sampling frequency
-# coi = range(306)  # channels of interest:
-# data = data[:, coi, :]
-# chan_names = [l.encode('ascii') for l in ft_data.label[coi]]
-# chan_types = ft_data.label[coi]
-# chan_types[0:305:3] = 'grad'
-# chan_types[1:305:3] = 'grad'
-# chan_types[2:306:3] = 'mag'
-# info = create_info(chan_names, sfreq, chan_types)
-# events = np.c_[np.cumsum(np.ones(n_trial)) * 5 * sfreq,
-#                np.zeros(n_trial), np.zeros(n_trial)]
-# epochs = EpochsArray(data, info, events=np.array(events, int),
-#                      tmin=ft_data.time[0][0], verbose=False)
-# epochs.times = ft_data.time[0]
-
-epochs = sm_fieldtrip2mne.sm_fieldtrip2mne(fname)
+# import data
+epochs = sm_fieldtrip2mne(fname)
+n_trial = len(epochs)
 
 # additional preproc steps
 epochs.apply_baseline((0,.05))
@@ -78,39 +59,19 @@ for itrl in range(n_trial):
 
 # decoding
 epochs = epochs.decimate(decim)
-gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=6)
+gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=n_jobs)
 gat.fit(epochs, stim_list)
-y_pred = gat.predict(epochs)
-score = gat.score()
-# gat.plot(vmin = .1, vmax = .4, title="Generalization Across Time", show=False)
-# gat.plot_diagonal()
+# y_pred = gat.predict(epochs)
+# score = gat.score()
 
-#----------------------- now for the rsvp data -------------------------
+
+
+#######################################################################################################
+ # now for the rsvp data 
 fname = op.join(data_path, 'abse_' + subject + '_main.mat')
-# Convert from Fieldtrip structure to mne Epochs
-# mat = sio.loadmat(fname, squeeze_me=True, struct_as_record=False)
-# ft_data = mat['data']
-# n_trial = len(ft_data.trial)
-# n_chans, n_time = ft_data.trial[0].shape
-# data = np.zeros((n_trial, n_chans, n_time))
-# for trial in range(n_trial):
-#     data[trial, :, :] = ft_data.trial[trial]
-# sfreq = float(ft_data.fsample)  # sampling frequency
-# coi = range(306)  # channels of interest:
-# data = data[:, coi, :]
-# chan_names = [l.encode('ascii') for l in ft_data.label[coi]]
-# chan_types = ft_data.label[coi]
-# chan_types[0:305:3] = 'grad'
-# chan_types[1:305:3] = 'grad'
-# chan_types[2:306:3] = 'mag'
-# info = create_info(chan_names, sfreq, chan_types)
-# events = np.c_[np.cumsum(np.ones(n_trial)) * 5 * sfreq,
-#                np.zeros(n_trial), np.zeros(n_trial)]
-# epochs = EpochsArray(data, info, events=np.array(events, int),
-#                      tmin=ft_data.time[0][0], verbose=False)
-# epochs.times = ft_data.time[0]
 
-epochs = sm_fieldtrip2mne.sm_fieldtrip2mne(fname)
+epochs = sm_fieldtrip2mne(fname)
+n_trial = len(epochs)
 
 # additional preproc steps
 epochs.apply_baseline((-.5,0))
@@ -137,26 +98,63 @@ for itrl in range(n_trial):
 		elif 'body' in rsvpfile:
 			stim_list_rsvp[itrl,istim] = 4
 
+# get lag indices
+lag = mat['output']['target'][0][0][0][0][0][0]
+R1 = mat['output']['response'][0][0][0][0][3][0][0][0][0]
+R2 = mat['output']['response'][0][0][0][0][4][0][0][0]
+ulag = np.unique(lag)
+# offset = [-1, 0, 1]
+
 # decoding
 epochs = epochs.decimate(decim)
 gat.predict_mode = 'mean-prediction' # generalization across conditions so no cross validation here.
-# y_pred = gat.predict(epochs)
-# loop across rsvp stimuli
-# loop version
-rsvp_score = []
+
+# compute scores for each stimulus
+rsvp_score_all = []
+rsvp_score_lag = []
+rsvp_score_offset0_lag = []
+rsvp_score_offset_1_lag = []
+rsvp_score_offset1_lag = []
 for istim in range(n_stim):
+	# compute scores across all trials
 	s = gat.score(epochs, stim_list_rsvp[:,istim])
 	s = np.array(s)
-	rsvp_score.append(s)
-	print(istim)
+	rsvp_score_all.append(s)
+	# compute scores for lags
+	for ilag in range(len(ulag)):
+		sel = lag==ulag[ilag]
+		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
+		s = np.array(s)
+		rsvp_score_lag.append(s)
 
-# joblib version
-# out = Parallel(n_jobs=6)(delayed(gat.score)(epochs, stim_list_rsvp[:,istim]) for istim in range(n_stim))
+		# compute scores depending on accuracy
+		# offset = 0 (correct report)
+		sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag])] # select one lag, correct T1 response, T2 resp with an offset
+		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
+		s = np.array(s)
+		rsvp_score_offset0_lag.append(s)
+
+		# compute scores depending on accuracy
+		# offset = 0 (correct report)
+		sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]-1)] # select one lag, correct T1 response, T2 resp with an offset
+		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
+		s = np.array(s)
+		rsvp_score_offset_1_lag.append(s)
+
+		# compute scores depending on accuracy
+		# offset = 0 (correct report)
+		sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]+1)] # select one lag, correct T1 response, T2 resp with an offset
+		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
+		s = np.array(s)
+		rsvp_score_offset1_lag.append(s)
+		print('.')
+
+	print(istim)
 
 # gat.plot(vmin = .2, vmax = .3, title="Generalization Across Time", show=False)
 # gat.plot_diagonal(show=False)
 # plt.show()
 
-#  compute subscores.
+# compute subscores
 
 
