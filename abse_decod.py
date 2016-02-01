@@ -1,4 +1,4 @@
-# Load libraries -------------------------------------------------------------
+""" Load libraries """
 import os.path as op
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,149 +12,168 @@ from sklearn.pipeline import make_pipeline
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.externals.joblib import Parallel, delayed
 from fonctionsPython.sm_fieldtrip2mne import sm_fieldtrip2mne
-from fonctionsPython.jr_subscore import subscore
 
-#------------------------- for single task -------------------------------------
-data_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mat/epoch/'
-subject = 'am150105'
-fname = op.join(data_path, 'abse_' + subject + '_train.mat')
+""" Some variables """
+subjects = ['am150105', 'bb130599', 'cd130323', 'jf140150', 'ql100269', 
+	'sb150103', 'sl130503','ws140212', 'jl150086', 'fm100109', 
+	'hb140194', 'sd150012', 'mk140057', 'xm140202', 'lr110094']
+
+minNumTrials = 5 # min number of trials to compute scores in a condition
 decim = 10
 n_jobs = 7
 
-# import data
-epochs = sm_fieldtrip2mne(fname)
-n_trial = len(epochs)
-
-# additional preproc steps
-epochs.apply_baseline((0,.05))
-
-# import behavior and conditions
-mat = sio.loadmat(fname)
-behavior = mat['data']['behavior']
-stim = np.squeeze(behavior[0][0][0][0][0][0])
-response = np.squeeze(behavior[0][0][0][0][1][0])
-face = stim == 'f'
-obj = stim == 'o'
-body = stim == 'b'
-house = stim == 'h'
-square = stim == 's'
-stim_list = np.zeros((n_trial,)) # note that shape should not be ntrial X 1 like in matlab but instead (ntrial,)
-for itrl in range(n_trial):
-	if face[itrl]:
-		stim_list[itrl] = 1
-	elif house[itrl]:
-		stim_list[itrl] = 2
-	elif obj[itrl]:
-		stim_list[itrl] = 3
-	elif body[itrl]:
-		stim_list[itrl] = 4
-	elif square[itrl]:
-		stim_list[itrl] = 0
-
-# # plot ERFs 
-# evoked_face = epochs[face].average()
-# evoked_face.plot(show=False)
-# evoked_house = epochs[house].average()
-# evoked_house.plot(show=False)
-
-# decoding
-epochs = epochs.decimate(decim)
-gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=n_jobs)
-gat.fit(epochs, stim_list)
-# y_pred = gat.predict(epochs)
-# score = gat.score()
+""" Main loop across subjects """
+for isub in range(1,2):#range(len(subjects)):
+	#------------------------- for single task -------------------------------------
+	data_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mat/epoch/'
+	subject = subjects[isub]
+	fname = op.join(data_path, 'abse_' + subject + '_train.mat')
 
 
+	# import data
+	epochs = sm_fieldtrip2mne(fname)
+	n_trial = len(epochs)
 
-#######################################################################################################
- # now for the rsvp data 
-fname = op.join(data_path, 'abse_' + subject + '_main.mat')
+	# additional preproc steps
+	epochs.apply_baseline((0,.05))
 
-epochs = sm_fieldtrip2mne(fname)
-n_trial = len(epochs)
+	# import behavior and conditions
+	mat = sio.loadmat(fname)
+	behavior = mat['data']['behavior']
+	stim = np.squeeze(behavior[0][0][0][0][0][0])
+	response = np.squeeze(behavior[0][0][0][0][1][0])
+	face = stim == 'f'
+	obj = stim == 'o'
+	body = stim == 'b'
+	house = stim == 'h'
+	square = stim == 's'
+	stim_list = np.zeros((n_trial,)) # note that shape should not be ntrial X 1 like in matlab but instead (ntrial,)
+	for itrl in range(n_trial):
+		if face[itrl]:
+			stim_list[itrl] = 1
+		elif house[itrl]:
+			stim_list[itrl] = 2
+		elif obj[itrl]:
+			stim_list[itrl] = 3
+		elif body[itrl]:
+			stim_list[itrl] = 4
+		elif square[itrl]:
+			stim_list[itrl] = 0
 
-# additional preproc steps
-epochs.apply_baseline((-.5,0))
-# epochs._data = flt.low_pass_filter(epochs.get_data(), 1000, 20)
+	# decoding
+	epochs = epochs.decimate(decim)
+	n_tr = len(epochs.times)
+	gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=n_jobs)
+	gat.fit(epochs, stim_list)
 
-# # check ERFs
-# evoked = epochs.average()
-# evoked.plot(show=False)
 
-# rsvp conditions and behavior
-fname = op.join(data_path, 'abse_' + subject + '_main_behavior.mat')
-mat = sio.loadmat(fname)
-n_stim = 12
-stim_list_rsvp = np.zeros((n_trial,n_stim))
-for itrl in range(n_trial):
+	#######################################################################################################
+	 # now for the rsvp data 
+	fname = op.join(data_path, 'abse_' + subject + '_main.mat')
+
+	epochs = sm_fieldtrip2mne(fname)
+	n_trial = len(epochs)
+
+
+	# additional preproc steps
+	epochs.apply_baseline((-.5,0))
+
+	# rsvp conditions and behavior
+	fname = op.join(data_path, 'abse_' + subject + '_main_behavior.mat')
+	mat = sio.loadmat(fname)
+	n_stim = 12
+	stim_list_rsvp = np.zeros((n_trial,n_stim))
+	for itrl in range(n_trial):
+		for istim in range(n_stim):
+			rsvpfile = mat['output']['stimuli'][0][0][0][0][0][0][0][0][0][itrl][0][istim][0]
+			if 'face' in rsvpfile:
+				stim_list_rsvp[itrl,istim] = 1
+			elif 'house' in rsvpfile:
+				stim_list_rsvp[itrl,istim] = 2
+			elif 'object' in rsvpfile:
+				stim_list_rsvp[itrl,istim] = 3
+			elif 'body' in rsvpfile:
+				stim_list_rsvp[itrl,istim] = 4
+
+	# get lag indices
+	lag = mat['output']['target'][0][0][0][0][0][0]
+	R1 = mat['output']['response'][0][0][0][0][3][0][0][0][0]
+	R2 = mat['output']['response'][0][0][0][0][4][0][0][0]
+	ulag = np.unique(lag)
+	n_lag = len(ulag)
+	# offset = [-1, 0, 1]
+
+	# decoding
+	epochs = epochs.decimate(decim)
+	n_te = len(epochs.times)
+	gat.predict_mode = 'mean-prediction' # generalization across conditions so no cross validation here.
+
+	# compute scores for each stimulus
+	rsvp_score_all = np.zeros((n_tr, n_te, n_stim))
+	rsvp_score_lag = np.zeros((n_tr, n_te, n_stim, n_lag))
+	rsvp_score_offset0_lag = np.zeros((n_tr, n_te, n_stim, n_lag))
+	rsvp_score_offset_1_lag = np.zeros((n_tr, n_te, n_stim, n_lag))
+	rsvp_score_offset1_lag = np.zeros((n_tr, n_te, n_stim, n_lag))
 	for istim in range(n_stim):
-		rsvpfile = mat['output']['stimuli'][0][0][0][0][0][0][0][0][0][itrl][0][istim][0]
-		if 'face' in rsvpfile:
-			stim_list_rsvp[itrl,istim] = 1
-		elif 'house' in rsvpfile:
-			stim_list_rsvp[itrl,istim] = 2
-		elif 'object' in rsvpfile:
-			stim_list_rsvp[itrl,istim] = 3
-		elif 'body' in rsvpfile:
-			stim_list_rsvp[itrl,istim] = 4
-
-# get lag indices
-lag = mat['output']['target'][0][0][0][0][0][0]
-R1 = mat['output']['response'][0][0][0][0][3][0][0][0][0]
-R2 = mat['output']['response'][0][0][0][0][4][0][0][0]
-ulag = np.unique(lag)
-# offset = [-1, 0, 1]
-
-# decoding
-epochs = epochs.decimate(decim)
-gat.predict_mode = 'mean-prediction' # generalization across conditions so no cross validation here.
-
-# compute scores for each stimulus
-rsvp_score_all = []
-rsvp_score_lag = []
-rsvp_score_offset0_lag = []
-rsvp_score_offset_1_lag = []
-rsvp_score_offset1_lag = []
-for istim in range(n_stim):
-	# compute scores across all trials
-	s = gat.score(epochs, stim_list_rsvp[:,istim])
-	s = np.array(s)
-	rsvp_score_all.append(s)
-	# compute scores for lags
-	for ilag in range(len(ulag)):
-		sel = lag==ulag[ilag]
-		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
+		# compute scores across all trials
+		s = gat.score(epochs, stim_list_rsvp[:,istim]) # compute predictions as well.
 		s = np.array(s)
-		rsvp_score_lag.append(s)
+		rsvp_score_all[:,:,istim] = s
 
-		# compute scores depending on accuracy
-		# offset = 0 (correct report)
-		sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag])] # select one lag, correct T1 response, T2 resp with an offset
-		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
-		s = np.array(s)
-		rsvp_score_offset0_lag.append(s)
+		# compute scores for lags
+		for ilag in range(len(ulag)):
+			sel = lag==ulag[ilag] # select one lag
+			s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
+			s = np.array(s)
+			rsvp_score_lag[:,:,istim,ilag] = s
 
-		# compute scores depending on accuracy
-		# offset = 0 (correct report)
-		sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]-1)] # select one lag, correct T1 response, T2 resp with an offset
-		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
-		s = np.array(s)
-		rsvp_score_offset_1_lag.append(s)
+			if istim+1==ulag[ilag]: # if the stim is one of the lag, then scores according to report 
+				# compute scores depending on accuracy
+				# one lag, correct T1, correct T2
+				sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag])]
+				sel = np.array(sel)
+				sel = sel.astype(int)
+				if sum(sel) > minNumTrials: 
+					s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
+					s = np.array(s)
+					rsvp_score_offset0_lag[:,:,istim,ilag] = s
+				else:
+					rsvp_score_offset0_lag[:,:,istim,ilag] = None
 
-		# compute scores depending on accuracy
-		# offset = 0 (correct report)
-		sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]+1)] # select one lag, correct T1 response, T2 resp with an offset
-		s = subscore(gat, sel=sel, y=stim_list_rsvp[sel,istim])
-		s = np.array(s)
-		rsvp_score_offset1_lag.append(s)
-		print('.')
+				# one lag, correct T1, T2 with offset -1
+				sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]-1)] 
+				sel = np.array(sel)
+				sel = sel.astype(int)
+				if sum(sel) > minNumTrials: 
+					s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
+					s = np.array(s)
+					rsvp_score_offset_1_lag[:,:,istim,ilag] = s
+				else:
+					rsvp_score_offset_1_lag[:,:,istim,ilag] = None
 
-	print(istim)
+				# one lag, correct T1, T2 with offset 1
+				sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]+1)] 
+				sel = np.array(sel)
+				sel = sel.astype(int)
+				if sum(sel) > minNumTrials: 
+					s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
+					s = np.array(s)
+					rsvp_score_offset1_lag[:,:,istim,ilag] = s
+				else:
+					rsvp_score_offset1_lag[:,:,istim,ilag] = None
+			print('.')
+		print(istim)
 
-# gat.plot(vmin = .2, vmax = .3, title="Generalization Across Time", show=False)
-# gat.plot_diagonal(show=False)
-# plt.show()
-
-# compute subscores
+	# Save subject results
+	fsave = op.join(data_path, subject + '_decod_main')
+	np.save(fsave, rsvp_score_all)
+	fsave = op.join(data_path, subject + '_decod_lag_main')
+	np.save(fsave, rsvp_score_lag)
+	fsave = op.join(data_path, subject + '_decod_offset0')
+	np.save(fsave, rsvp_score_offset0_lag)
+	fsave = op.join(data_path, subject + '_decod_offset_1')
+	np.save(fsave, rsvp_score_offset_1_lag)
+	fsave = op.join(data_path, subject + '_decod_offset1')
+	np.save(fsave, rsvp_score_offset1_lag)
 
 
