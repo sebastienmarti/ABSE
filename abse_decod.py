@@ -18,17 +18,17 @@ subjects = ['am150105', 'bb130599', 'cd130323', 'jf140150', 'ql100269',
 	'sb150103', 'sl130503','ws140212', 'jl150086', 'fm100109', 
 	'hb140194', 'sd150012', 'mk140057', 'xm140202', 'lr110094']
 
+data_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mat/epoch/'
+save_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mne/decod/'
 minNumTrials = 5 # min number of trials to compute scores in a condition
-decim = 10
+decim = 5
 n_jobs = 7
 
 """ Main loop across subjects """
-for isub in range(1,2):#range(len(subjects)):
+for isub in range(len(subjects)):
 	#------------------------- for single task -------------------------------------
-	data_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mat/epoch/'
 	subject = subjects[isub]
 	fname = op.join(data_path, 'abse_' + subject + '_train.mat')
-
 
 	# import data
 	epochs = sm_fieldtrip2mne(fname)
@@ -161,19 +161,23 @@ for isub in range(1,2):#range(len(subjects)):
 					rsvp_score_offset1_lag[:,:,istim,ilag] = s
 				else:
 					rsvp_score_offset1_lag[:,:,istim,ilag] = None
+			else:
+				rsvp_score_offset0_lag[:,:,istim,ilag] = None
+				rsvp_score_offset_1_lag[:,:,istim,ilag] = None
+				rsvp_score_offset1_lag[:,:,istim,ilag] = None
 			print('.')
 		print(istim)
 
 	# Save subject results
-	fsave = op.join(data_path, subject + '_decod_main')
+	fsave = op.join(save_path, subject + '_decod_main')
 	np.save(fsave, rsvp_score_all)
-	fsave = op.join(data_path, subject + '_decod_lag_main')
+	fsave = op.join(save_path, subject + '_decod_main_lag')
 	np.save(fsave, rsvp_score_lag)
-	fsave = op.join(data_path, subject + '_decod_offset0')
+	fsave = op.join(save_path, subject + '_decod_main_offset0')
 	np.save(fsave, rsvp_score_offset0_lag)
-	fsave = op.join(data_path, subject + '_decod_offset_1')
+	fsave = op.join(save_path, subject + '_decod_main_offset_1')
 	np.save(fsave, rsvp_score_offset_1_lag)
-	fsave = op.join(data_path, subject + '_decod_offset1')
+	fsave = op.join(save_path, subject + '_decod_main_offset1')
 	np.save(fsave, rsvp_score_offset1_lag)
 
 
