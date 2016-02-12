@@ -9,6 +9,7 @@ from mne.decoding import GeneralizationAcrossTime
 from mne import filter as flt
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
+from sklearn import svm
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.externals.joblib import Parallel, delayed
 from fonctionsPython.sm_fieldtrip2mne import sm_fieldtrip2mne
@@ -20,12 +21,18 @@ subjects = ['am150105', 'bb130599', 'cd130323', 'jf140150', 'ql100269',
 
 data_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mat/epoch/'
 save_path = '/neurospin/meg/meg_tmp/ABSE_Marti_2014/mne/decod/'
-minNumTrials = 5 # min number of trials to compute scores in a condition
-decim = 5
-n_jobs = 7
+minNumTrials = 2 # min number of trials to compute scores in a condition
+decim = 10
+lowpass_filter = 30
+# classification parameters
+n_jobs = -2
+n_fold = 5
+# step = .01
+# length = .01
 
 """ Main loop across subjects """
 for isub in range(len(subjects)):
+	# isub=1
 	#------------------------- for single task -------------------------------------
 	subject = subjects[isub]
 	fname = op.join(data_path, 'abse_' + subject + '_train.mat')
@@ -36,6 +43,7 @@ for isub in range(len(subjects)):
 
 	# additional preproc steps
 	epochs.apply_baseline((0,.05))
+	epochs._data = flt.low_pass_filter(epochs.get_data(), 1000, lowpass_filter)
 
 	# import behavior and conditions
 	mat = sio.loadmat(fname)
@@ -63,9 +71,27 @@ for isub in range(len(subjects)):
 	# decoding
 	epochs = epochs.decimate(decim)
 	n_tr = len(epochs.times)
-	gat = GeneralizationAcrossTime(predict_mode='cross-validation', n_jobs=n_jobs)
-	gat.fit(epochs, stim_list)
+	X = epochs[stim_list>0]
+	y = stim_list[stim_list>0]
 
+	# SVM parameters
+	scaler = StandardScaler() # centers data by removing the mean and scales to unit variance
+	# model = svm.SVC(C=1, kernel='linear', class_weight='auto')
+	model = svm.LinearSVC(C=1, multi_class='ovr', class_weight='auto')
+	clf = make_pipeline(scaler, model)
+	cv = StratifiedKFold(y, n_fold)
+	gat = GeneralizationAcrossTime(
+		cv=cv,
+		clf=clf, 
+		predict_mode='cross-validation', 
+		n_jobs=n_jobs,
+		# train_times=dict(step=step,	length=length)
+		)
+
+	gat.fit(X, y)
+	# score = gat.score(X, y)
+	# gat.plot(vmin=.2, vmax=.3)
+	# gat.plot_diagonal(chance=.25)
 
 	#######################################################################################################
 	 # now for the rsvp data 
@@ -77,6 +103,7 @@ for isub in range(len(subjects)):
 
 	# additional preproc steps
 	epochs.apply_baseline((-.5,0))
+	epochs._data = flt.low_pass_filter(epochs.get_data(), 1000, lowpass_filter)
 
 	# rsvp conditions and behavior
 	fname = op.join(data_path, 'abse_' + subject + '_main_behavior.mat')
@@ -130,10 +157,11 @@ for isub in range(len(subjects)):
 			if istim+1==ulag[ilag]: # if the stim is one of the lag, then scores according to report 
 				# compute scores depending on accuracy
 				# one lag, correct T1, correct T2
-				sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag])]
-				sel = np.array(sel)
-				sel = sel.astype(int)
-				if sum(sel) > minNumTrials: 
+				# sel = [all(tup) for tup in zip(lag==ulag[ilag], R2[:,0]==ulag[ilag])]
+				sel = lag==ulag[ilag]
+				sel2 = R2[:,0]==ulag[ilag]
+				sel = sel & sel2
+				if sum(np.array(sel).astype(int)) > minNumTrials: 
 					s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
 					s = np.array(s)
 					rsvp_score_offset0_lag[:,:,istim,ilag] = s
@@ -141,10 +169,10 @@ for isub in range(len(subjects)):
 					rsvp_score_offset0_lag[:,:,istim,ilag] = None
 
 				# one lag, correct T1, T2 with offset -1
-				sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]-1)] 
-				sel = np.array(sel)
-				sel = sel.astype(int)
-				if sum(sel) > minNumTrials: 
+				sel = lag==ulag[ilag]
+				sel2 = R2[:,0]==ulag[ilag]-1
+				sel = sel & sel2
+				if sum(np.array(sel).astype(int)) > minNumTrials: 
 					s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
 					s = np.array(s)
 					rsvp_score_offset_1_lag[:,:,istim,ilag] = s
@@ -152,10 +180,10 @@ for isub in range(len(subjects)):
 					rsvp_score_offset_1_lag[:,:,istim,ilag] = None
 
 				# one lag, correct T1, T2 with offset 1
-				sel = [all(tup) for tup in zip(lag==ulag[ilag], R1==1, R2[:,1]==ulag[ilag]+1)] 
-				sel = np.array(sel)
-				sel = sel.astype(int)
-				if sum(sel) > minNumTrials: 
+				sel = lag==ulag[ilag]
+				sel2 = R2[:,0]==ulag[ilag]+1
+				sel = sel & sel2
+				if sum(np.array(sel).astype(int)) > minNumTrials: 
 					s = gat.score(epochs[sel], stim_list_rsvp[sel,istim])
 					s = np.array(s)
 					rsvp_score_offset1_lag[:,:,istim,ilag] = s
@@ -179,5 +207,9 @@ for isub in range(len(subjects)):
 	np.save(fsave, rsvp_score_offset_1_lag)
 	fsave = op.join(save_path, subject + '_decod_main_offset1')
 	np.save(fsave, rsvp_score_offset1_lag)
+
+
+
+
 
 
